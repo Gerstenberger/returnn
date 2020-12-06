@@ -7521,7 +7521,7 @@ class GenericCELoss(Loss):
       target_exp = tf.stack([tf.range(tf.shape(target)[0], dtype=tf.int32), target], axis=1)  # (time,2)
       # Thus K == 2. gather_nd out will be (target_exp.shape[0],) = (time,).
       gathered = tf.gather_nd(nlog_scores, target_exp)   # (time,)
-      return self.reduce_func(gathered)
+      return gathered
 
     # noinspection PyUnusedLocal
     def loss_grad(op, grad):
@@ -7556,14 +7556,14 @@ class GenericCELoss(Loss):
     y = self.output_with_activation.y
     grad_f, = tf.gradients(tf_compat.v1.log(y), x)
     assert grad_f is not None
-    grad_f = flatten_with_seq_len_mask(grad_f, seq_lens=self.output_seq_lens, time_major=self.output.is_time_major)
-    x = flatten_with_seq_len_mask(x, seq_lens=self.output_seq_lens, time_major=self.output.is_time_major)
-    y = flatten_with_seq_len_mask(y, seq_lens=self.output_seq_lens, time_major=self.output.is_time_major)
+    grad_f = self._flatten_or_merge(grad_f, seq_lens=self.output_seq_lens, time_major=self.output.is_time_major)
+    x = self._flatten_or_merge(x, seq_lens=self.output_seq_lens, time_major=self.output.is_time_major)
+    y = self._flatten_or_merge(y, seq_lens=self.output_seq_lens, time_major=self.output.is_time_major)
     assert y.get_shape().ndims == 2
     y /= tf.reduce_sum(y, axis=1, keepdims=True)
     assert self.output.dim == self.target.dim
     assert self.target.sparse
-    return self._loss_func(x, y, grad_f, self.target_flat)
+    return self.reduce_func(self._loss_func(x, y, grad_f, self.target_flat))
 
 
 class CtcLoss(Loss):
