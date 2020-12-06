@@ -3016,6 +3016,55 @@ def test_init_network_from_config_preload_from_files_eval():
   engine.finalize()
 
 
+def test_SigmoidGenericCrossEntropyLossPosScore():
+  rnd = numpy.random.RandomState(42)
+  from returnn.datasets.generating import StaticDataset
+  n_data_dim = 2
+  n_classes_dim = 3
+
+  def get_data(num_seqs):
+    return [
+      {
+        "data": rnd.uniform(-1., 1., (seq_len, n_data_dim)).astype("float32"),
+        "classes": rnd.choice(range(n_classes_dim), (seq_len,)).astype("int32")
+      }
+      for seq_len in [rnd.choice(list(range(1, 50)) + list(range(1, 20))) for _ in range(num_seqs)]]
+
+  train_data = StaticDataset(
+    input_dim=n_data_dim, output_dim=n_classes_dim,
+    data=get_data(20))
+  print("train data seq lens:", [len(d["data"]) for d in train_data.data])
+  train_data.init_seq_order(epoch=1)
+  cv_data = StaticDataset(input_dim=n_data_dim, output_dim=n_classes_dim, data=get_data(3))
+  print("cv data seq lens:", [len(d["data"]) for d in cv_data.data])
+  cv_data.init_seq_order(epoch=1)
+
+  config = Config()
+  config.update({
+    "model": "%s/model" % _get_tmp_dir(),
+    "num_outputs": n_classes_dim,
+    "num_inputs": n_data_dim,
+    "network": {
+      "rnn": {"class": "rec", "unit": "lstm", "n_out": 3},  # make it recurrent
+      "output": {"class": "linear", "activation": "sigmoid", "loss": "generic_ce", "from": "rnn"}},
+    "start_epoch": 1,
+    "num_epochs": 1,
+    "batch_size": 50,  # set it such that sometimes we have num-seqs 1, 2 or 3 in a single batch
+    "adam": True,
+    "learning_rate": 0.001,
+    "tf_log_memory_usage": True,
+    "log_batch_size": True
+  })
+
+  _cleanup_old_models(config)
+  engine = Engine(config=config)
+  engine.init_train_from_config(config=config, train_data=train_data, dev_data=cv_data, eval_data=None)
+
+  sequence_pos_file = _get_tmp_file(".txt")
+  engine.eval_model(output_per_seq_file=sequence_pos_file, output_per_seq_format=["pos_score"], loss_name="output")
+
+
+
 def test_TikhonovRegularizationLayer():
   """
   Tests :class:`TikhonovRegularizationLayer`.

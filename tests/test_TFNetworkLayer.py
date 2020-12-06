@@ -3833,6 +3833,48 @@ def test_CrossEntropyLoss_masked_inf_fake_upper_bound():
       last_var_v = var_v
 
 
+def test_GenericCELoss():
+  # same as CrossEntropy test, with generic ce instead
+  with make_scope() as session:
+    n_out = 13
+    config = Config({
+      "debug_print_layer_output_template": True,
+      "extern_data": {
+        "data": {"dim": n_out},
+        "classes": {"dim": n_out, "sparse": True},
+      }})
+    net = TFNetwork(config=config, train_flag=True)
+    net.construct_from_dict({
+      "var": {"class": "variable", "shape": (n_out,)},
+      "add": {"class": "combine", "kind": "add", "from": ["data", "var"]},
+      "output": {
+        "class": "activation", "from": "add", "activation": "sigmoid",
+        "loss": "generic_ce"},
+    })
+    losses_dict, total_loss, total_constraints = net.get_losses_initialized()
+    print("Losses:")
+    pprint(losses_dict)
+    assert set(losses_dict.keys()) == {"output"}
+    loss_holder = losses_dict["output"]
+    assert isinstance(loss_holder, LossHolder)
+    assert isinstance(loss_holder.loss, GenericCELoss)
+    session.run(tf_compat.v1.global_variables_initializer())
+    print("Get loss:")
+    feed_dict = make_feed_dict(net.extern_data.data.values(), same_time=True)
+    print("random classes:", feed_dict[net.extern_data.data["classes"].placeholder])
+    loss_t = loss_holder.get_loss_value()
+    opt = tf_compat.v1.train.GradientDescentOptimizer(learning_rate=0.1)
+    minimize_op = opt.minimize(loss_t)
+    last_loss_v = float("inf")
+    for step in range(3):
+      loss_v, _ = session.run((loss_t, minimize_op), feed_dict=feed_dict)
+      print("step %i, loss %f" % (step, loss_v))
+      assert numpy.isfinite(loss_v) and numpy.isscalar(loss_v)
+      assert loss_v < last_loss_v  # it's convex and we cannot overshoot
+      last_loss_v = loss_v
+
+
+
 def test_reduce_mean_in_time():
   with make_scope() as session:
     n_out = 5
